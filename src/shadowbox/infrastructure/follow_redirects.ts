@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import fetch, {RequestInit, Response} from 'node-fetch';
+import {Readable} from 'stream';
 
 // Makes an http(s) request, and follows any redirect with the same request
 // without changing the request method or body.  This is used because typical
@@ -27,15 +28,20 @@ export async function requestFollowRedirectsWithSameMethodAndBody(
   const manualRedirectOptions = {
     ...options,
     redirect: 'manual' as RequestRedirect,
+    timeout: options.timeout ?? 30000,
   };
-  let response: Response;
   for (let i = 0; i < 10; i++) {
-    response = await fetch(url, manualRedirectOptions);
-    if (response.status >= 300 && response.status < 400) {
-      url = response.headers.get('location');
-    } else {
-      break;
+    const response = await fetch(url, manualRedirectOptions);
+    if (![301, 302, 303, 307, 308].includes(response.status)) {
+      return response;
     }
+    const location = response.headers.get('location');
+    // Intermediate bodies are never read. Release the socket before redirecting.
+    (response.body as Readable).destroy();
+    if (!location) {
+      throw new Error('Redirect response is missing a Location header');
+    }
+    url = new URL(location, url).toString();
   }
-  return response;
+  throw new Error('Too many redirects');
 }
