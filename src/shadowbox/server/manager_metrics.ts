@@ -111,7 +111,7 @@ export class PrometheusManagerMetrics implements ManagerMetrics {
   }
 
   async getServerMetrics(timeframe: Duration): Promise<ServerMetrics> {
-    const now = new Date().getTime() / 1000;
+    const now = Date.now() / 1000;
     // We need to calculate consistent start and end times for Prometheus range
     // queries. Rounding the end time *up* to the nearest multiple of the step
     // prevents time "drift" between queries, which is crucial for reliable step
@@ -184,16 +184,13 @@ export class PrometheusManagerMetrics implements ManagerMetrics {
       serverMetrics.bandwidth.current.timestamp = currentBandwidth[0];
     }
 
-    for (const result of bandwidthRange.result) {
-      const peakDataTransferred = findPeak(result.values ?? []);
-      if (peakDataTransferred !== null) {
-        const peakValue = parseFloat(peakDataTransferred[1]);
-        if (peakValue > 0) {
-          serverMetrics.bandwidth.peak.data.bytes = peakValue;
-          serverMetrics.bandwidth.peak.timestamp = Math.min(now, peakDataTransferred[0]);
-        }
+    const peakDataTransferred = findPeak(bandwidthRangeValues);
+    if (peakDataTransferred !== null) {
+      const peakValue = parseFloat(peakDataTransferred[1]);
+      if (peakValue > 0) {
+        serverMetrics.bandwidth.peak.data.bytes = peakValue;
+        serverMetrics.bandwidth.peak.timestamp = Math.min(now, peakDataTransferred[0]);
       }
-      break; // There should only be one result.
     }
 
     const locationMap = new Map<string, ServerMetricsLocationEntry>();
