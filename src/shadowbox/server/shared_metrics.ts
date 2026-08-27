@@ -261,11 +261,12 @@ export class OutlineSharedMetricsPublisher implements SharedMetricsPublisher {
       userReports,
     } as HourlyServerMetricsReportJson;
 
-    this.reportStartTimestampMs = reportEndTimestampMs;
-    if (userReports.length === 0) {
-      return;
+    if (userReports.length > 0) {
+      await this.metricsCollector.collectServerUsageMetrics(report);
     }
-    await this.metricsCollector.collectServerUsageMetrics(report);
+    // Keep the reporting window aligned with usageMetrics.reset(). On failure,
+    // the next attempt still includes usage since the previous successful report.
+    this.reportStartTimestampMs = reportEndTimestampMs;
   }
 
   private async reportFeatureMetrics(): Promise<void> {

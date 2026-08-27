@@ -302,9 +302,18 @@ export class ServerAccessKeyRepository implements AccessKeyRepository {
   // Compares access key usage with collected metrics, marking them as under or over limit.
   // Updates access key data usage.
   async enforceAccessKeyDataLimits() {
-    const metrics = new PrometheusManagerMetrics(this.prometheusClient);
-    const bytesTransferredById = (await metrics.getOutboundByteTransfer({hours: 30 * 24}))
-      .bytesTransferredByUserId;
+    // Unlimited keys don't need a 30-day Prometheus scan. Still run the loop
+    // below so removing the last limit re-enables any previously blocked keys.
+    const hasDataLimits = this.accessKeys.some(
+      (key) => (key.dataLimit ?? this._defaultDataLimit) !== undefined
+    );
+    const bytesTransferredById = hasDataLimits
+      ? (
+          await new PrometheusManagerMetrics(this.prometheusClient).getOutboundByteTransfer({
+            hours: 30 * 24,
+          })
+        ).bytesTransferredByUserId
+      : {};
     let limitStatusChanged = false;
     for (const accessKey of this.accessKeys) {
       const usageBytes = bytesTransferredById[accessKey.id] ?? 0;

@@ -208,7 +208,10 @@ paths:
                       type: object
                       properties:
                         accessKeyId:
-                          type: integer
+                          description: Numeric for canonical safe integer IDs; otherwise the exact custom access key ID.
+                          oneOf:
+                            - type: integer
+                            - type: string
                         tunnelTime:
                           type: object
                           properties:

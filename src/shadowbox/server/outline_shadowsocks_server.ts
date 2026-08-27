@@ -13,8 +13,8 @@
 // limitations under the License.
 
 import * as child_process from 'child_process';
+import * as fs from 'fs';
 import * as jsyaml from 'js-yaml';
-import * as mkdirp from 'mkdirp';
 import * as path from 'path';
 
 import * as file from '../infrastructure/file';
@@ -23,7 +23,9 @@ import {ShadowsocksAccessKey, ShadowsocksServer} from '../model/shadowsocks_serv
 
 // Runs outline-ss-server.
 export class OutlineShadowsocksServer implements ShadowsocksServer {
-  private ssProcess: child_process.ChildProcess;
+  private ssProcess?: child_process.ChildProcess;
+  private restartTimer?: NodeJS.Timeout;
+  private restartDelayMs = 1000;
   private ipCountryFilename?: string;
   private ipAsnFilename?: string;
   private isAsnMetricsEnabled = false;
@@ -93,7 +95,7 @@ export class OutlineShadowsocksServer implements ShadowsocksServer {
         keysJson.keys.push(key);
       }
 
-      mkdirp.sync(path.dirname(this.configFilename));
+      fs.mkdirSync(path.dirname(this.configFilename), {recursive: true});
 
       try {
         file.atomicWriteFileSync(this.configFilename, jsyaml.safeDump(keysJson, {sortKeys: true}));
@@ -105,6 +107,9 @@ export class OutlineShadowsocksServer implements ShadowsocksServer {
   }
 
   private start() {
+    if (this.ssProcess || this.restartTimer) {
+      return;
+    }
     const commandArguments = ['-config', this.configFilename, '-metrics', this.metricsLocation];
     if (this.ipCountryFilename) {
       commandArguments.push('-ip_country_db', this.ipCountryFilename);
@@ -120,19 +125,30 @@ export class OutlineShadowsocksServer implements ShadowsocksServer {
     }
     logging.info('======== Starting Outline Shadowsocks Service ========');
     logging.info(`${this.binaryFilename} ${commandArguments.map((a) => `"${a}"`).join(' ')}`);
-    this.ssProcess = child_process.spawn(this.binaryFilename, commandArguments);
-    this.ssProcess.on('error', (error) => {
+    const startedAt = Date.now();
+    const ssProcess = (this.ssProcess = child_process.spawn(this.binaryFilename, commandArguments));
+    ssProcess.on('error', (error) => {
       logging.error(`Error spawning outline-ss-server: ${error}`);
     });
-    this.ssProcess.on('exit', (code, signal) => {
+    // 'close' is emitted after both spawn failures and normal process exits.
+    // Using one event prevents duplicate restarts when 'error' and 'exit' both fire.
+    ssProcess.once('close', (code, signal) => {
       logging.info(`outline-ss-server has exited with error. Code: ${code}, Signal: ${signal}`);
-      logging.info('Restarting');
-      this.start();
+      this.ssProcess = undefined;
+      if (Date.now() - startedAt >= 60000) {
+        this.restartDelayMs = 1000;
+      }
+      logging.info(`Restarting in ${this.restartDelayMs}ms`);
+      this.restartTimer = setTimeout(() => {
+        this.restartTimer = undefined;
+        this.start();
+      }, this.restartDelayMs);
+      this.restartDelayMs = Math.min(this.restartDelayMs * 2, 30000);
     });
     // This exposes the outline-ss-server output on the docker logs.
     // TODO(fortuna): Consider saving the output and expose it through the manager service.
-    this.ssProcess.stdout.pipe(process.stdout);
-    this.ssProcess.stderr.pipe(process.stderr);
+    ssProcess.stdout.pipe(process.stdout);
+    ssProcess.stderr.pipe(process.stderr);
   }
 }
 
