@@ -61,7 +61,7 @@ interface ServerMetricsLocationEntry {
 }
 
 interface ServerMetricsAccessKeyEntry {
-  accessKeyId: number;
+  accessKeyId: number | string;
   tunnelTime: Duration;
   dataTransferred: Data;
   connection: ConnectionStats;
@@ -297,7 +297,12 @@ function getServerMetricsAccessKeyEntry(
   let entry = map.get(accessKey);
   if (entry === undefined) {
     entry = {
-      accessKeyId: parseInt(accessKey),
+      // Preserve the existing numeric representation only when it is lossless.
+      // Custom IDs (including leading zeros and large integers) are valid keys.
+      accessKeyId:
+        Number.isSafeInteger(Number(accessKey)) && String(Number(accessKey)) === accessKey
+          ? Number(accessKey)
+          : accessKey,
       dataTransferred: {bytes: 0},
       tunnelTime: {seconds: 0},
       connection: {
