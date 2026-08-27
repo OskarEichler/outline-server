@@ -28,7 +28,6 @@ export class OutlineShadowsocksServer implements ShadowsocksServer {
   private restartDelayMs = 1000;
   private ipCountryFilename?: string;
   private ipAsnFilename?: string;
-  private isAsnMetricsEnabled = false;
   private isReplayProtectionEnabled = false;
 
   /**
@@ -70,40 +69,28 @@ export class OutlineShadowsocksServer implements ShadowsocksServer {
   // Promise is resolved after the outline-ss-config config is updated and the SIGHUP sent.
   // Keys may not be active yet.
   // TODO(fortuna): Make promise resolve when keys are ready.
-  update(keys: ShadowsocksAccessKey[]): Promise<void> {
-    return this.writeConfigFile(keys).then(() => {
-      if (!this.ssProcess) {
-        this.start();
-        return Promise.resolve();
-      } else {
-        this.ssProcess.kill('SIGHUP');
-      }
-    });
+  async update(keys: ShadowsocksAccessKey[]): Promise<void> {
+    await this.writeConfigFile(keys);
+    if (this.ssProcess) {
+      this.ssProcess.kill('SIGHUP');
+    } else {
+      this.start();
+    }
   }
 
-  private writeConfigFile(keys: ShadowsocksAccessKey[]): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const keysJson = {keys: [] as ShadowsocksAccessKey[]};
-      for (const key of keys) {
-        if (!isAeadCipher(key.cipher)) {
-          logging.error(
-            `Cipher ${key.cipher} for access key ${key.id} is not supported: use an AEAD cipher instead.`
-          );
-          continue;
-        }
-
-        keysJson.keys.push(key);
+  private async writeConfigFile(keys: ShadowsocksAccessKey[]): Promise<void> {
+    const keysJson = {keys: [] as ShadowsocksAccessKey[]};
+    for (const key of keys) {
+      if (!isAeadCipher(key.cipher)) {
+        logging.error(
+          `Cipher ${key.cipher} for access key ${key.id} is not supported: use an AEAD cipher instead.`
+        );
+        continue;
       }
-
-      fs.mkdirSync(path.dirname(this.configFilename), {recursive: true});
-
-      try {
-        file.atomicWriteFileSync(this.configFilename, jsyaml.safeDump(keysJson, {sortKeys: true}));
-        resolve();
-      } catch (error) {
-        reject(error);
-      }
-    });
+      keysJson.keys.push(key);
+    }
+    fs.mkdirSync(path.dirname(this.configFilename), {recursive: true});
+    file.atomicWriteFileSync(this.configFilename, jsyaml.safeDump(keysJson, {sortKeys: true}));
   }
 
   private start() {
