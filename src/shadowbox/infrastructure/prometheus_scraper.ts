@@ -16,7 +16,7 @@ import * as child_process from 'child_process';
 import * as fs from 'fs';
 import * as http from 'http';
 import * as jsyaml from 'js-yaml';
-import * as mkdirp from 'mkdirp';
+import fetch from 'node-fetch';
 import * as path from 'path';
 
 import * as logging from '../infrastructure/logging';
@@ -105,35 +105,32 @@ export class ApiPrometheusClient implements PrometheusClient {
   private readonly agent: http.Agent;
 
   constructor(private address: string) {
-    this.agent = new http.Agent({ keepAlive: true });
+    this.agent = new http.Agent({keepAlive: true});
   }
 
-  private request(url: string): Promise<QueryResultData> {
-    return new Promise<QueryResultData>((fulfill, reject) => {
-      const options = {agent: this.agent};
-      http
-        .get(url, options, (response) => {
-          if (response.statusCode < 200 || response.statusCode > 299) {
-            reject(new Error(`Got error ${response.statusCode}`));
-            response.resume();
-            return;
-          }
-          let body = '';
-          response.on('data', (data) => {
-            body += data;
-          });
-          response.on('end', () => {
-            const result = JSON.parse(body) as QueryResult;
-            if (result.status !== 'success') {
-              return reject(new Error(`Error ${result.errorType}: ${result.error}`));
-            }
-            fulfill(result.data);
-          });
-        })
-        .on('error', (e) => {
-          reject(new Error(`Failed to query prometheus API: ${e}`));
-        });
-    });
+  private async request(url: string): Promise<QueryResultData> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    try {
+      const response = await fetch(url, {
+        agent: this.agent,
+        signal: controller.signal,
+        redirect: 'error',
+      });
+      if (!response.ok) {
+        throw new Error(`Got error ${response.status}`);
+      }
+      // Parsing and body-stream errors must reject, not escape an HTTP callback.
+      const result = (await response.json()) as QueryResult;
+      if (result.status !== 'success') {
+        throw new Error(`Error ${result.errorType}: ${result.error}`);
+      }
+      return result.data;
+    } finally {
+      clearTimeout(timeout);
+      // Also release the connection when status checks or body parsing fail.
+      controller.abort();
+    }
   }
 
   query(query: string): Promise<QueryResultData> {
@@ -161,18 +158,10 @@ export async function startPrometheus(
 }
 
 async function writePrometheusConfigToDisk(configFilename: string, configJson: {}) {
-  await mkdirp.sync(path.dirname(configFilename));
+  await fs.promises.mkdir(path.dirname(configFilename), {recursive: true});
   const ymlTxt = jsyaml.safeDump(configJson, {sortKeys: true});
   // Write the file asynchronously to prevent blocking the node thread.
-  await new Promise<void>((resolve, reject) => {
-    fs.writeFile(configFilename, ymlTxt, 'utf-8', (err) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve();
-      }
-    });
-  });
+  await fs.promises.writeFile(configFilename, ymlTxt, 'utf-8');
 }
 
 async function spawnPrometheusSubprocess(
@@ -209,7 +198,12 @@ function isHttpEndpointHealthy(endpoint: string): Promise<boolean> {
   return new Promise((resolve, _) => {
     http
       .get(endpoint, (response) => {
+        response.resume();
         resolve(response.statusCode >= 200 && response.statusCode < 300);
+      })
+      .setTimeout(1000, function () {
+        this.destroy();
+        resolve(false);
       })
       .on('error', () => {
         // Prometheus is not ready yet.
