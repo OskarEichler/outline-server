@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import {Readable} from 'stream';
-
 import {Clock} from '../infrastructure/clock';
 import * as follow_redirects from '../infrastructure/follow_redirects';
 import {JsonConfig} from '../infrastructure/json_config';
@@ -155,11 +153,13 @@ export class RestMetricsCollectorClient implements MetricsCollectorClient {
   }
 
   private async postMetrics(urlPath: string, reportJson: string): Promise<void> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
     const options = {
       headers: {'Content-Type': 'application/json'},
       method: 'POST',
       body: reportJson,
-      timeout: 30000,
+      signal: controller.signal,
     };
     const url = `${this.serviceUrl}${urlPath}`;
     logging.debug(`Posting metrics to ${url} with options ${JSON.stringify(options)}`);
@@ -168,13 +168,16 @@ export class RestMetricsCollectorClient implements MetricsCollectorClient {
         url,
         options
       );
-      // Only the status is used. Release the final response on success and error.
-      (response.body as Readable).destroy();
       if (!response.ok) {
         throw new Error(`Got status ${response.status}`);
       }
     } catch (e) {
       throw new Error(`Failed to post to metrics server: ${e}`);
+    } finally {
+      clearTimeout(timeout);
+      // Only the status is used. Abort the HTTP request itself, not just its
+      // proxy response stream, even when the collector never finishes its body.
+      controller.abort();
     }
   }
 }
