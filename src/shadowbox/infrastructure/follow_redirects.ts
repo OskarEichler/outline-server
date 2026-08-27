@@ -31,17 +31,37 @@ export async function requestFollowRedirectsWithSameMethodAndBody(
     timeout: options.timeout ?? 30000,
   };
   for (let i = 0; i < 10; i++) {
-    const response = await fetch(url, manualRedirectOptions);
-    if (![301, 302, 303, 307, 308].includes(response.status)) {
-      return response;
+    const controller = new AbortController();
+    const detach = () => options.signal?.removeEventListener('abort', abort);
+    const abort = () => {
+      controller.abort();
+      detach();
+    };
+    options.signal?.addEventListener('abort', abort);
+    if (options.signal?.aborted) {
+      abort();
     }
-    const location = response.headers.get('location');
-    // Intermediate bodies are never read. Release the socket before redirecting.
-    (response.body as Readable).destroy();
-    if (!location) {
-      throw new Error('Redirect response is missing a Location header');
+    try {
+      const response = await fetch(url, {...manualRedirectOptions, signal: controller.signal});
+      if (![301, 302, 303, 307, 308].includes(response.status)) {
+        const body = response.body as Readable;
+        body.once('end', detach);
+        body.once('close', abort);
+        body.once('error', abort);
+        return response;
+      }
+      const location = response.headers.get('location');
+      // node-fetch's body is a proxy stream: destroying it alone does not close
+      // the underlying HTTP request when the server keeps its response open.
+      abort();
+      if (!location) {
+        throw new Error('Redirect response is missing a Location header');
+      }
+      url = new URL(location, url).toString();
+    } catch (error) {
+      abort();
+      throw error;
     }
-    url = new URL(location, url).toString();
   }
   throw new Error('Too many redirects');
 }
