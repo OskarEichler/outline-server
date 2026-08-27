@@ -88,7 +88,8 @@ export class PrometheusManagerMetrics implements ManagerMetrics {
     const result = await this.prometheusClient.query(
       `sum(increase(shadowsocks_data_bytes{dir=~"c<p|p>t"}[${timeframe.hours}h])) by (access_key)`
     );
-    const usage = {} as {[userId: string]: number};
+    // Custom IDs such as __proto__ must remain ordinary own properties.
+    const usage: {[userId: string]: number} = Object.create(null);
     for (const entry of result.result) {
       const bytes = Math.round(parseFloat(entry.value[1]));
       if (bytes === 0) {
@@ -296,12 +297,13 @@ function getServerMetricsAccessKeyEntry(
   const accessKey = metric['access_key'];
   let entry = map.get(accessKey);
   if (entry === undefined) {
+    const numericAccessKey = Number(accessKey);
     entry = {
       // Preserve the existing numeric representation only when it is lossless.
       // Custom IDs (including leading zeros and large integers) are valid keys.
       accessKeyId:
-        Number.isSafeInteger(Number(accessKey)) && String(Number(accessKey)) === accessKey
-          ? Number(accessKey)
+        Number.isSafeInteger(numericAccessKey) && String(numericAccessKey) === accessKey
+          ? numericAccessKey
           : accessKey,
       dataTransferred: {bytes: 0},
       tunnelTime: {seconds: 0},
