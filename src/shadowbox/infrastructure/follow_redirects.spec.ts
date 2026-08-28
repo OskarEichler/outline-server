@@ -13,6 +13,7 @@
 // limitations under the License.
 
 import * as http from 'http';
+import * as net from 'net';
 
 import {requestFollowRedirectsWithSameMethodAndBody} from './follow_redirects';
 
@@ -50,7 +51,7 @@ describe('requestFollowRedirectsWithSameMethodAndBody', () => {
       }
     });
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-    origin = `http://127.0.0.1:${(server.address() as http.AddressInfo).port}`;
+    origin = `http://127.0.0.1:${(server.address() as net.AddressInfo).port}`;
   });
 
   afterAll(async () => {
