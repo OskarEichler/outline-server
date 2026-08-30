@@ -194,7 +194,7 @@ describe('PrometheusManagerMetrics', () => {
   },
   "accessKeys": [
     {
-      "accessKeyId": 0,
+      "accessKeyId": "0",
       "dataTransferred": {
         "bytes": 1000
       },
@@ -380,7 +380,7 @@ describe('PrometheusManagerMetrics', () => {
   },
   "accessKeys": [
     {
-      "accessKeyId": 1,
+      "accessKeyId": "1",
       "dataTransferred": {
         "bytes": 0
       },
@@ -396,7 +396,7 @@ describe('PrometheusManagerMetrics', () => {
       }
     },
     {
-      "accessKeyId": 0,
+      "accessKeyId": "0",
       "dataTransferred": {
         "bytes": 1000
       },
@@ -456,5 +456,4 @@ describe('PrometheusManagerMetrics', () => {
 
     expect(serverMetrics.accessKeys.map((entry) => entry.accessKeyId)).toEqual(accessKeyIds);
   });
-
 });
