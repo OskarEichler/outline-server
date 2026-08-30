@@ -71,13 +71,13 @@ describe('requestFollowRedirectsWithSameMethodAndBody', () => {
 
   it('rejects a redirect without a Location header', async () => {
     await expectAsync(
-      requestFollowRedirectsWithSameMethodAndBody(`${origin}/missing`)
+      requestFollowRedirectsWithSameMethodAndBody(`${origin}/missing`, {})
     ).toBeRejectedWithError('Redirect response is missing a Location header');
   });
 
   it('rejects after the redirect limit', async () => {
     await expectAsync(
-      requestFollowRedirectsWithSameMethodAndBody(`${origin}/loop`)
+      requestFollowRedirectsWithSameMethodAndBody(`${origin}/loop`, {})
     ).toBeRejectedWithError('Too many redirects');
   });
 
