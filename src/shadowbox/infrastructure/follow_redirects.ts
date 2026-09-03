@@ -24,6 +24,8 @@ export async function requestFollowRedirectsWithSameMethodAndBody(
   url: string,
   options: RequestInit
 ): Promise<Response> {
+  let currentUrl = new URL(url);
+  let allowedOrigin = currentUrl.origin;
   // Make a copy of options to modify parameters.
   const manualRedirectOptions = {
     ...options,
@@ -42,7 +44,10 @@ export async function requestFollowRedirectsWithSameMethodAndBody(
       abort();
     }
     try {
-      const response = await fetch(url, {...manualRedirectOptions, signal: controller.signal});
+      const response = await fetch(currentUrl.toString(), {
+        ...manualRedirectOptions,
+        signal: controller.signal,
+      });
       if (![301, 302, 303, 307, 308].includes(response.status)) {
         const body = response.body as Readable;
         body.once('end', detach);
@@ -57,7 +62,18 @@ export async function requestFollowRedirectsWithSameMethodAndBody(
       if (!location) {
         throw new Error('Redirect response is missing a Location header');
       }
-      url = new URL(location, url).toString();
+      const redirectUrl = new URL(location, currentUrl);
+      const isHttpsUpgrade =
+        currentUrl.protocol === 'http:' &&
+        redirectUrl.protocol === 'https:' &&
+        redirectUrl.hostname === currentUrl.hostname;
+      if (redirectUrl.origin !== allowedOrigin && !isHttpsUpgrade) {
+        throw new Error('Cross-origin redirects are not allowed');
+      }
+      if (isHttpsUpgrade) {
+        allowedOrigin = redirectUrl.origin;
+      }
+      currentUrl = redirectUrl;
     } catch (error) {
       abort();
       throw error;
